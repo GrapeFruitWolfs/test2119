@@ -91,14 +91,26 @@ collect_system_info() {
         DISK_USED_GB="N/A"
     fi
     
-    # 输出格式化信息
-    SYS_INFO="OS=$OS\nArchitecture=$ARCH\nCPUs=$CPUS\nHostname=$HOSTNAME\nTime=$TIME\nMemoryTotal=$MEM_TOTAL_GB GB\nMemoryUsed=$MEM_USED_GB GB\nMemoryPercent=$MEM_PERCENT%\nDiskTotal=$DISK_TOTAL_GB GB\nDiskUsed=$DISK_USED_GB GB\nDiskPercent=$DISK_PERCENT%"
-    echo "$SYS_INFO"
+    # 以键值对数组形式存储，方便后续处理
+    SYS_INFO=(
+        "OS=$OS"
+        "Architecture=$ARCH"
+        "CPUs=$CPUS"
+        "Hostname=$HOSTNAME"
+        "Time=$TIME"
+        "MemoryTotal=$MEM_TOTAL_GB GB"
+        "MemoryUsed=$MEM_USED_GB GB"
+        "MemoryPercent=$MEM_PERCENT%"
+        "DiskTotal=$DISK_TOTAL_GB GB"
+        "DiskUsed=$DISK_USED_GB GB"
+        "DiskPercent=$DISK_PERCENT%"
+    )
+    printf "%s\n" "${SYS_INFO[@]}"
 }
 
 # 生成数据库名称
 generate_db_name() {
-    local sys_info=$1
+    local sys_info="$1"
     local hostname=$(echo "$sys_info" | grep "^Hostname=" | cut -d'=' -f2)
     local timestamp=$(date +"%Y%m%d-%H%M%S")
     local cpus=$(echo "$sys_info" | grep "^CPUs=" | cut -d'=' -f2)
@@ -133,8 +145,8 @@ generate_db_name() {
 
 # 创建数据库
 create_database() {
-    local db_name=$1
-    local sys_info=$2
+    local db_name="$1"
+    local sys_info="$2"
     ENDPOINT="${NOTION_BASE_URL}/databases"
     
     # 构建 JSON 数据
@@ -180,21 +192,24 @@ create_database() {
         DB_ID=$(echo "$BODY" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
     fi
     rm -f "$TEMP_FILE"
-    echo "$DB_ID"
     
     # 添加系统信息条目
-    echo "$sys_info" | while IFS= read -r line; do
-        key=$(echo "$line" | cut -d'=' -f1)
-        value=$(echo "$line" | cut -d'=' -f2-)
-        add_database_entry "$DB_ID" "$key" "$value"
+    echo "开始添加数据库条目..."
+    echo "$sys_info" | while IFS='=' read -r key value; do
+        if [ -n "$key" ] && [ -n "$value" ]; then
+            echo "添加条目: $key = $value"
+            add_database_entry "$DB_ID" "$key" "$value"
+        fi
     done
+    
+    echo "$DB_ID"
 }
 
 # 添加数据库条目
 add_database_entry() {
-    local db_id=$1
-    local name=$2
-    local value=$3
+    local db_id="$1"
+    local name="$2"
+    local value="$3"
     ENDPOINT="${NOTION_BASE_URL}/pages"
     
     # 构建 JSON 数据
@@ -230,6 +245,8 @@ add_database_entry() {
     
     if [ "$HTTP_CODE" -ne 200 ]; then
         echo "添加条目失败: $name, 状态码: $HTTP_CODE, 响应: $BODY"
+    else
+        echo "成功添加条目: $name"
     fi
     rm -f "$TEMP_FILE"
 }
