@@ -74,7 +74,7 @@ test_api() {
     rm -f "$temp_file"
 }
 
-# 收集系统信息
+# 收集系统信息（新增用户权限）
 collect_system_info() {
     local os=$(uname -s)
     local arch=$(uname -m)
@@ -106,8 +106,19 @@ collect_system_info() {
         disk_percent=$(awk "BEGIN {printf \"%.1f\", ($disk_used_mb / $disk_total_mb * 100)}")
     fi
     
-    printf "OS=%s\nArchitecture=%s\nCPUs=%s\nHostname=%s\nTime=%s\nMemoryTotal=%s GB\nMemoryUsed=%s GB\nMemoryPercent=%s%%\nDiskTotal=%s GB\nDiskUsed=%s GB\nDiskPercent=%s%%" \
-        "$os" "$arch" "$cpus" "$hostname" "$time" "$mem_total" "$mem_used" "$mem_percent" "$disk_total" "$disk_used" "$disk_percent"
+    # 收集用户权限
+    local user_privileges
+    local uid=$(id -u 2>/dev/null || echo "unknown")
+    if [ "$uid" = "0" ]; then
+        user_privileges="root"
+    else
+        local username=$(id -un 2>/dev/null || echo "$USER")
+        local groups=$(id -Gn 2>/dev/null || echo "unknown")
+        user_privileges="$username (UID: $uid, Groups: $groups)"
+    fi
+    
+    printf "OS=%s\nArchitecture=%s\nCPUs=%s\nHostname=%s\nTime=%s\nMemoryTotal=%s GB\nMemoryUsed=%s GB\nMemoryPercent=%s%%\nDiskTotal=%s GB\nDiskUsed=%s GB\nDiskPercent=%s%%\nUserPrivileges=%s" \
+        "$os" "$arch" "$cpus" "$hostname" "$time" "$mem_total" "$mem_used" "$mem_percent" "$disk_total" "$disk_used" "$disk_percent" "$user_privileges"
 }
 
 # 生成数据库名称
