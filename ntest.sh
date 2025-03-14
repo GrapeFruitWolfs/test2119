@@ -22,19 +22,20 @@ test_api() {
     ENDPOINT="${NOTION_BASE_URL}/pages/${PAGE_ID}"
     
     if [ "$USE_CURL_JQ" -eq 1 ]; then
-        RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$ENDPOINT" \
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$ENDPOINT" \
             -H "Authorization: Bearer $API_TOKEN" \
             -H "Notion-Version: 2022-06-28" \
             -H "Content-Type: application/json")
     else
-        RESPONSE=$(wget -q --method=GET --header="Authorization: Bearer $API_TOKEN" \
+        wget -q --method=GET --header="Authorization: Bearer $API_TOKEN" \
             --header="Notion-Version: 2022-06-28" \
             --header="Content-Type: application/json" \
-            -O - "$ENDPOINT" >/dev/null 2>&1 && echo "200" || echo "500")
+            -O - "$ENDPOINT" >/dev/null 2>&1
+        HTTP_CODE=$([ $? -eq 0 ] && echo "200" || echo "500")
     fi
     
-    if [ "$RESPONSE" -ne 200 ]; then
-        echo "API 测试失败，状态码: $RESPONSE"
+    if [ "$HTTP_CODE" -ne 200 ]; then
+        echo "API 测试失败，状态码: $HTTP_CODE"
         exit 1
     fi
     echo "API 测试成功！"
@@ -48,10 +49,9 @@ collect_system_info() {
     HOSTNAME=$(hostname 2>/dev/null || echo "unknown")
     TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
     
-    # 内存信息（单位: MB）
     if [ -f /proc/meminfo ]; then
-        MEM_TOTAL=$(awk '/MemTotal/ {print $2}' /proc/meminfo) # KB
-        MEM_FREE=$(awk '/MemFree/ {print $2}' /proc/meminfo)   # KB
+        MEM_TOTAL=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+        MEM_FREE=$(awk '/MemFree/ {print $2}' /proc/meminfo)
         MEM_USED=$((MEM_TOTAL - MEM_FREE))
         MEM_TOTAL_MB=$((MEM_TOTAL / 1024))
         MEM_USED_MB=$((MEM_USED / 1024))
@@ -62,7 +62,6 @@ collect_system_info() {
         MEM_PERCENT="N/A"
     fi
     
-    # 磁盘信息（根目录，单位: MB）
     DISK_INFO=$(df -m / 2>/dev/null | tail -1 | awk '{print $2,$3,$4}')
     if [ -n "$DISK_INFO" ]; then
         DISK_TOTAL=$(echo "$DISK_INFO" | cut -d' ' -f1)
@@ -75,7 +74,6 @@ collect_system_info() {
         DISK_PERCENT="N/A"
     fi
     
-    # 转换为 GB
     if [ "$MEM_TOTAL_MB" != "N/A" ]; then
         MEM_TOTAL_GB=$(awk "BEGIN {printf \"%.1f\", $MEM_TOTAL_MB / 1024}")
         MEM_USED_GB=$(awk "BEGIN {printf \"%.1f\", $MEM_USED_MB / 1024}")
@@ -91,7 +89,6 @@ collect_system_info() {
         DISK_USED_GB="N/A"
     fi
     
-    # 以键值对数组形式存储
     SYS_INFO=(
         "OS=$OS"
         "Architecture=$ARCH"
@@ -116,7 +113,6 @@ generate_db_name() {
     local cpus=$(echo "$sys_info" | grep "^CPUs=" | cut -d'=' -f2)
     local mem_total=$(echo "$sys_info" | grep "^MemoryTotal=" | cut -d'=' -f2 | cut -d' ' -f1)
     
-    # CPU emoji
     if [ "$cpus" -le 4 ]; then
         cpu_emoji="🐢"
     elif [ "$cpus" -le 8 ]; then
@@ -127,7 +123,6 @@ generate_db_name() {
         cpu_emoji="🚀"
     fi
     
-    # 内存 emoji
     if [ "$mem_total" = "N/A" ] || [ -z "$mem_total" ]; then
         mem_emoji="📀"
     elif awk "BEGIN {exit !($mem_total <= 4)}"; then
@@ -149,7 +144,6 @@ create_database() {
     local sys_info="$2"
     ENDPOINT="${NOTION_BASE_URL}/databases"
     
-    # 构建 JSON 数据
     if [ "$USE_CURL_JQ" -eq 1 ]; then
         JSON_DATA=$(jq -n \
             --arg page_id "$PAGE_ID" \
@@ -159,7 +153,6 @@ create_database() {
         JSON_DATA='{"parent":{"type":"page_id","page_id":"'"$PAGE_ID"'"},"title":[{"type":"text","text":{"content":"'"$db_name"'"}}],"properties":{"Name":{"title":{}},"Value":{"rich_text":{}}}}'
     fi
     
-    # 发送 POST 请求
     TEMP_FILE=$(mktemp)
     if [ "$USE_CURL_JQ" -eq 1 ]; then
         HTTP_CODE=$(curl -s -o "$TEMP_FILE" -w "%{http_code}" -X POST "$ENDPOINT" \
@@ -174,11 +167,7 @@ create_database() {
             --header="Content-Type: application/json" \
             --body-data="$JSON_DATA" \
             -O "$TEMP_FILE" "$ENDPOINT" >/dev/null 2>&1
-        if [ $? -eq 0 ]; then
-            HTTP_CODE=200
-        else
-            HTTP_CODE=500
-        fi
+        HTTP_CODE=$([ $? -eq 0 ] && echo "200" || echo "500")
         BODY=$(cat "$TEMP_FILE")
     fi
     
@@ -188,7 +177,6 @@ create_database() {
         exit 1
     fi
     
-    # 提取数据库 ID
     if [ "$USE_CURL_JQ" -eq 1 ]; then
         DB_ID=$(echo "$BODY" | jq -r '.id')
     else
@@ -196,7 +184,6 @@ create_database() {
     fi
     rm -f "$TEMP_FILE"
     
-    # 添加系统信息条目
     echo "开始添加数据库条目..."
     echo "$sys_info" | while IFS='=' read -r key value; do
         if [ -n "$key" ] && [ -n "$value" ]; then
@@ -215,18 +202,17 @@ add_database_entry() {
     local value="$3"
     ENDPOINT="${NOTION_BASE_URL}/pages"
     
-    # 构建 JSON 数据
+    # 修正 JSON 格式，确保符合 Notion API 要求
     if [ "$USE_CURL_JQ" -eq 1 ]; then
         JSON_DATA=$(jq -n \
             --arg db_id "$db_id" \
             --arg name "$name" \
             --arg value "$value" \
-            '{parent: {database_id: $db_id}, properties: {Name: {title: [{text: {content: $name}}]}, Value: {rich_text: [{text: {content: $value}}]}}}')
+            '{parent: {database_id: $db_id}, properties: {Name: {title: [{type: "text", text: {content: $name}}]}, Value: {rich_text: [{type: "text", text: {content: $value}}}]}}')
     else
-        JSON_DATA='{"parent":{"database_id":"'"$db_id"'"},"properties":{"Name":{"title":[{"text":{"content":"'"$name"'"}}]},"Value":{"rich_text":[{"text":{"content":"'"$value"'"}}}]}}'
+        JSON_DATA='{"parent":{"database_id":"'"$db_id"'"},"properties":{"Name":{"title":[{"type":"text","text":{"content":"'"$name"'"}}]},"Value":{"rich_text":[{"type":"text","text":{"content":"'"$value"'"}}}]}}'
     fi
     
-    # 发送 POST 请求
     TEMP_FILE=$(mktemp)
     if [ "$USE_CURL_JQ" -eq 1 ]; then
         HTTP_CODE=$(curl -s -o "$TEMP_FILE" -w "%{http_code}" -X POST "$ENDPOINT" \
@@ -241,18 +227,14 @@ add_database_entry() {
             --header="Content-Type: application/json" \
             --body-data="$JSON_DATA" \
             -O "$TEMP_FILE" "$ENDPOINT" >/dev/null 2>&1
-        if [ $? -eq 0 ]; then
-            HTTP_CODE=200
-        else
-            HTTP_CODE=500
-        fi
+        HTTP_CODE=$([ $? -eq 0 ] && echo "200" || echo "500")
         BODY=$(cat "$TEMP_FILE")
     fi
     
     if [ "$HTTP_CODE" -ne 200 ]; then
         echo "添加条目失败: $name, 状态码: $HTTP_CODE, 响应: $BODY"
     else
-        echo "成功添加条目: $name"
+        echo "成功添加条目: $name, 响应: $BODY"
     fi
     rm -f "$TEMP_FILE"
 }
