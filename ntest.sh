@@ -159,7 +159,7 @@ create_database() {
     fi
     
     local db_id=$(json_parse_id "$BODY")
-    echo "成功创建数据库，ID: $db_id"
+    echo "成功创建数据库"
     rm -f "$temp_file"
     
     echo "开始添加数据库条目..."
@@ -179,7 +179,7 @@ create_database() {
     done
     
     echo "数据库条目添加完成，总计 $entry_count 条，成功 $((entry_count - failed_count)) 条，失败 $failed_count 条"
-    echo "$db_id"
+    echo "ID: $db_id"
 }
 
 # 添加数据库条目（返回 0 表示成功，1 表示失败）
@@ -215,7 +215,7 @@ main() {
     done
     local db_name=$(generate_db_name "$sys_info")
     echo "创建数据库: $db_name"
-    create_database "$db_name" "$sys_info" > /dev/null  # 只保留 ID 输出在最后
+    create_database "$db_name" "$sys_info"
     echo "操作完成"
 }
 
