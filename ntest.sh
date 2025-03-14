@@ -82,7 +82,6 @@ collect_system_info() {
     local hostname=$(hostname 2>/dev/null || echo "unknown")
     local time=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
     
-    # 内存信息（单位: GB）
     local mem_total="N/A"
     local mem_used="N/A"
     local mem_percent="N/A"
@@ -95,7 +94,6 @@ collect_system_info() {
         mem_percent=$(awk "BEGIN {printf \"%.1f\", ($mem_used_kb / $mem_total_kb * 100)}")
     fi
     
-    # 磁盘信息（根目录，单位: GB）
     local disk_total="N/A"
     local disk_used="N/A"
     local disk_percent="N/A"
@@ -108,7 +106,6 @@ collect_system_info() {
         disk_percent=$(awk "BEGIN {printf \"%.1f\", ($disk_used_mb / $disk_total_mb * 100)}")
     fi
     
-    # 返回键值对数组
     printf "OS=%s\nArchitecture=%s\nCPUs=%s\nHostname=%s\nTime=%s\nMemoryTotal=%s GB\nMemoryUsed=%s GB\nMemoryPercent=%s%%\nDiskTotal=%s GB\nDiskUsed=%s GB\nDiskPercent=%s%%" \
         "$os" "$arch" "$cpus" "$hostname" "$time" "$mem_total" "$mem_used" "$mem_percent" "$disk_total" "$disk_used" "$disk_percent"
 }
@@ -121,7 +118,6 @@ generate_db_name() {
     local cpus=$(echo "$sys_info" | grep "^CPUs=" | cut -d'=' -f2)
     local mem_total=$(echo "$sys_info" | grep "^MemoryTotal=" | cut -d'=' -f2 | cut -d' ' -f1)
     
-    # CPU emoji
     local cpu_emoji
     case $cpus in
         [0-4]) cpu_emoji="🐢" ;;
@@ -130,7 +126,6 @@ generate_db_name() {
         *) cpu_emoji="🚀" ;;
     esac
     
-    # 内存 emoji
     local mem_emoji
     if [ "$mem_total" = "N/A" ] || [ -z "$mem_total" ]; then
         mem_emoji="📀"
@@ -164,20 +159,30 @@ create_database() {
     fi
     
     local db_id=$(json_parse_id "$BODY")
+    echo "成功创建数据库，ID: $db_id"
     rm -f "$temp_file"
     
     echo "开始添加数据库条目..."
+    local entry_count=0
+    local failed_count=0
     echo "$sys_info" | while IFS='=' read -r key value; do
         if [ -n "$key" ] && [ -n "$value" ]; then
-            echo "添加条目: $key = $value"
-            add_database_entry "$db_id" "$key" "$value"
+            entry_count=$((entry_count + 1))
+            printf "  [%02d] %-12s : %s" "$entry_count" "$key" "$value"
+            if add_database_entry "$db_id" "$key" "$value"; then
+                echo " [成功]"
+            else
+                failed_count=$((failed_count + 1))
+                echo " [失败]"
+            fi
         fi
     done
     
+    echo "数据库条目添加完成，总计 $entry_count 条，成功 $((entry_count - failed_count)) 条，失败 $failed_count 条"
     echo "$db_id"
 }
 
-# 添加数据库条目
+# 添加数据库条目（返回 0 表示成功，1 表示失败）
 add_database_entry() {
     local db_id="$1"
     local name="$2"
@@ -189,11 +194,12 @@ add_database_entry() {
     http_request "POST" "$endpoint" "$json_data" "$temp_file"
     
     if [ "$HTTP_CODE" -ne 200 ]; then
-        echo "添加条目失败: $name, 状态码: $HTTP_CODE, 响应: $BODY"
-    else
-        echo "成功添加条目: $name"
+        echo "添加条目失败: $name, 状态码: $HTTP_CODE, 响应: $BODY" >&2
+        rm -f "$temp_file"
+        return 1
     fi
     rm -f "$temp_file"
+    return 0
 }
 
 # 主函数
@@ -202,11 +208,15 @@ main() {
     echo "运行探针..."
     local sys_info=$(collect_system_info)
     echo "探针收集到的系统信息:"
-    echo "$sys_info"
+    echo "$sys_info" | while IFS='=' read -r key value; do
+        if [ -n "$key" ] && [ -n "$value" ]; then
+            printf "  %-12s : %s\n" "$key" "$value"
+        fi
+    done
     local db_name=$(generate_db_name "$sys_info")
     echo "创建数据库: $db_name"
-    local db_id=$(create_database "$db_name" "$sys_info")
-    echo "成功创建数据库，ID: $db_id"
+    create_database "$db_name" "$sys_info" > /dev/null  # 只保留 ID 输出在最后
+    echo "操作完成"
 }
 
 # 执行主函数
