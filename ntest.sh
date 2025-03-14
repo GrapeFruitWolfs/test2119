@@ -6,22 +6,44 @@ API_TOKEN="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"
 PAGE_ID="1b5f54b30da880fab349cab11d90c65c"
 
 # 检查工具并设置模式
-USE_CURL_JQ=1
-if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
-    echo "警告: curl 或 jq 未安装，尝试使用 wget 和基础方法"
+USE_CURL=1
+if ! command -v curl >/dev/null 2>&1; then
+    echo "警告: curl 未安装，尝试使用 wget"
     if ! command -v wget >/dev/null 2>&1; then
         echo "错误: 需要 curl 或 wget，请至少安装一种工具"
         exit 1
     fi
-    USE_CURL_JQ=0
+    USE_CURL=0
 fi
+
+# 自定义 JSON 处理函数
+json_handler() {
+    local action="$1"  # "create_db", "create_entry", 或 "parse_id"
+    local db_name="$2"
+    local db_id="$3"
+    local name="$4"
+    local value="$5"
+    local response="$6"
+    
+    case "$action" in
+        "create_db")
+            echo "{\"parent\":{\"type\":\"page_id\",\"page_id\":\"$PAGE_ID\"},\"title\":[{\"type\":\"text\",\"text\":{\"content\":\"$db_name\"}}],\"properties\":{\"Name\":{\"title\":{}},\"Value\":{\"rich_text\":{}}}}"
+            ;;
+        "create_entry")
+            echo "{\"parent\":{\"database_id\":\"$db_id\"},\"properties\":{\"Name\":{\"title\":[{\"type\":\"text\",\"text\":{\"content\":\"$name\"}}]},\"Value\":{\"rich_text\":[{\"type\":\"text\",\"text\":{\"content\":\"$value\"}}]}}}"
+            ;;
+        "parse_id")
+            echo "$response" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4
+            ;;
+    esac
+}
 
 # 测试 Notion API 可用性
 test_api() {
     echo "测试 Notion API 可用性..."
     ENDPOINT="${NOTION_BASE_URL}/pages/${PAGE_ID}"
     
-    if [ "$USE_CURL_JQ" -eq 1 ]; then
+    if [ "$USE_CURL" -eq 1 ]; then
         HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$ENDPOINT" \
             -H "Authorization: Bearer $API_TOKEN" \
             -H "Notion-Version: 2022-06-28" \
@@ -144,17 +166,10 @@ create_database() {
     local sys_info="$2"
     ENDPOINT="${NOTION_BASE_URL}/databases"
     
-    if [ "$USE_CURL_JQ" -eq 1 ]; then
-        JSON_DATA=$(jq -n \
-            --arg page_id "$PAGE_ID" \
-            --arg db_name "$db_name" \
-            '{parent: {type: "page_id", page_id: $page_id}, title: [{type: "text", text: {content: $db_name}}], properties: {Name: {title: {}}, Value: {rich_text: {}}}}')
-    else
-        JSON_DATA='{"parent":{"type":"page_id","page_id":"'"$PAGE_ID"'"},"title":[{"type":"text","text":{"content":"'"$db_name"'"}}],"properties":{"Name":{"title":{}},"Value":{"rich_text":{}}}}'
-    fi
-    
+    JSON_DATA=$(json_handler "create_db" "$db_name")
     TEMP_FILE=$(mktemp)
-    if [ "$USE_CURL_JQ" -eq 1 ]; then
+    
+    if [ "$USE_CURL" -eq 1 ]; then
         HTTP_CODE=$(curl -s -o "$TEMP_FILE" -w "%{http_code}" -X POST "$ENDPOINT" \
             -H "Authorization: Bearer $API_TOKEN" \
             -H "Notion-Version: 2022-06-28" \
@@ -177,11 +192,7 @@ create_database() {
         exit 1
     fi
     
-    if [ "$USE_CURL_JQ" -eq 1 ]; then
-        DB_ID=$(echo "$BODY" | jq -r '.id')
-    else
-        DB_ID=$(echo "$BODY" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
-    fi
+    DB_ID=$(json_handler "parse_id" "" "" "" "" "$BODY")
     rm -f "$TEMP_FILE"
     
     echo "开始添加数据库条目..."
@@ -202,19 +213,10 @@ add_database_entry() {
     local value="$3"
     ENDPOINT="${NOTION_BASE_URL}/pages"
     
-    # 修正 JSON 格式，确保符合 Notion API 要求
-    if [ "$USE_CURL_JQ" -eq 1 ]; then
-        JSON_DATA=$(jq -n \
-            --arg db_id "$db_id" \
-            --arg name "$name" \
-            --arg value "$value" \
-            '{parent: {database_id: $db_id}, properties: {Name: {title: [{type: "text", text: {content: $name}}]}, Value: {rich_text: [{type: "text", text: {content: $value}}}]}}')
-    else
-        JSON_DATA='{"parent":{"database_id":"'"$db_id"'"},"properties":{"Name":{"title":[{"type":"text","text":{"content":"'"$name"'"}}]},"Value":{"rich_text":[{"type":"text","text":{"content":"'"$value"'"}}}]}}'
-    fi
-    
+    JSON_DATA=$(json_handler "create_entry" "" "$db_id" "$name" "$value")
     TEMP_FILE=$(mktemp)
-    if [ "$USE_CURL_JQ" -eq 1 ]; then
+    
+    if [ "$USE_CURL" -eq 1 ]; then
         HTTP_CODE=$(curl -s -o "$TEMP_FILE" -w "%{http_code}" -X POST "$ENDPOINT" \
             -H "Authorization: Bearer $API_TOKEN" \
             -H "Notion-Version: 2022-06-28" \
@@ -234,7 +236,7 @@ add_database_entry() {
     if [ "$HTTP_CODE" -ne 200 ]; then
         echo "添加条目失败: $name, 状态码: $HTTP_CODE, 响应: $BODY"
     else
-        echo "成功添加条目: $name, 响应: $BODY"
+        echo "成功添加条目: $name"
     fi
     rm -f "$TEMP_FILE"
 }
