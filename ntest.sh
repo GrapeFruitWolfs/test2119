@@ -91,7 +91,7 @@ collect_system_info() {
         DISK_USED_GB="N/A"
     fi
     
-    # 以键值对数组形式存储，方便后续处理
+    # 以键值对数组形式存储
     SYS_INFO=(
         "OS=$OS"
         "Architecture=$ARCH"
@@ -162,22 +162,25 @@ create_database() {
     # 发送 POST 请求
     TEMP_FILE=$(mktemp)
     if [ "$USE_CURL_JQ" -eq 1 ]; then
-        RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$ENDPOINT" \
+        HTTP_CODE=$(curl -s -o "$TEMP_FILE" -w "%{http_code}" -X POST "$ENDPOINT" \
             -H "Authorization: Bearer $API_TOKEN" \
             -H "Notion-Version: 2022-06-28" \
             -H "Content-Type: application/json" \
             -d "$JSON_DATA")
+        BODY=$(cat "$TEMP_FILE")
     else
-        RESPONSE=$(wget --method=POST --header="Authorization: Bearer $API_TOKEN" \
+        wget --method=POST --header="Authorization: Bearer $API_TOKEN" \
             --header="Notion-Version: 2022-06-28" \
             --header="Content-Type: application/json" \
             --body-data="$JSON_DATA" \
-            -O "$TEMP_FILE" "$ENDPOINT" >/dev/null 2>&1 && echo "200" || echo "500")
-        RESPONSE="$RESPONSE\n$(cat "$TEMP_FILE")"
+            -O "$TEMP_FILE" "$ENDPOINT" >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            HTTP_CODE=200
+        else
+            HTTP_CODE=500
+        fi
+        BODY=$(cat "$TEMP_FILE")
     fi
-    
-    HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-    BODY=$(echo "$RESPONSE" | sed '$d')
     
     if [ "$HTTP_CODE" -ne 200 ]; then
         echo "创建数据库失败，状态码: $HTTP_CODE, 响应: $BODY"
@@ -226,22 +229,25 @@ add_database_entry() {
     # 发送 POST 请求
     TEMP_FILE=$(mktemp)
     if [ "$USE_CURL_JQ" -eq 1 ]; then
-        RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$ENDPOINT" \
+        HTTP_CODE=$(curl -s -o "$TEMP_FILE" -w "%{http_code}" -X POST "$ENDPOINT" \
             -H "Authorization: Bearer $API_TOKEN" \
             -H "Notion-Version: 2022-06-28" \
             -H "Content-Type: application/json" \
             -d "$JSON_DATA")
+        BODY=$(cat "$TEMP_FILE")
     else
-        RESPONSE=$(wget --method=POST --header="Authorization: Bearer $API_TOKEN" \
+        wget --method=POST --header="Authorization: Bearer $API_TOKEN" \
             --header="Notion-Version: 2022-06-28" \
             --header="Content-Type: application/json" \
             --body-data="$JSON_DATA" \
-            -O "$TEMP_FILE" "$ENDPOINT" >/dev/null 2>&1 && echo "200" || echo "500")
-        RESPONSE="$RESPONSE\n$(cat "$TEMP_FILE")"
+            -O "$TEMP_FILE" "$ENDPOINT" >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            HTTP_CODE=200
+        else
+            HTTP_CODE=500
+        fi
+        BODY=$(cat "$TEMP_FILE")
     fi
-    
-    HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-    BODY=$(echo "$RESPONSE" | sed '$d')
     
     if [ "$HTTP_CODE" -ne 200 ]; then
         echo "添加条目失败: $name, 状态码: $HTTP_CODE, 响应: $BODY"
